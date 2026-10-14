@@ -13,7 +13,7 @@ class Fingerprint(Module):
         self.client = client
 
     def run(self, domain):
-        r = self.client.get_site(domain, timeout=5)
+        r = self.client.get_site(domain)
         rows = [("url", r.url), ("status", f"HTTP {r.status_code}")]
         if r.url.startswith("http://"):
             rows.append(("tls", "HTTPS unavailable, fell back to HTTP"))

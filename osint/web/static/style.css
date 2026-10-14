@@ -7,7 +7,8 @@ h1{font:600 1.4rem ui-monospace,Menlo,Consolas,monospace;margin:0}h2{font-size:1
 .mut{color:var(--mut)}.bad{color:var(--bad)}.ok{color:var(--ok)}[hidden]{display:none!important}
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;margin:16px 0}
 label{display:block;margin:12px 0 4px;font-weight:600}
-input[type=text],input:not([type]),input[type=number],input[type=search],select{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit}
+input[type=text],input:not([type]),input[type=number],input[type=search],select,textarea{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--fg);font:inherit}
+textarea{resize:vertical}
 fieldset{border:1px solid var(--line);border-radius:6px;margin:16px 0;padding:8px 14px}
 .check{display:flex;gap:8px;align-items:flex-start;font-weight:400;margin:6px 0}
 .check input{margin-top:5px}.auth{margin-top:12px;font-weight:600}

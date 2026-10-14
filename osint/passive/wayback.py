@@ -14,7 +14,7 @@ class Wayback(Module):
         params = {"url": domain}
         if timestamp:
             params["timestamp"] = timestamp
-        r = self.client.get(API, params=params, timeout=15)
+        r = self.client.get(API, params=params)
         r.raise_for_status()
         snap = r.json().get("archived_snapshots", {}).get("closest")
         return snap if snap and snap.get("available") else None

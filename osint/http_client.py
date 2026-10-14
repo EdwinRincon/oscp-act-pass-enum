@@ -7,7 +7,8 @@ DEFAULT_UA = "Mozilla/5.0 (compatible; osint-enum/1.0)"
 
 
 class HttpClient:
-    def __init__(self, timeout: int = 10, user_agent: str = DEFAULT_UA, retries: int = 2):
+    def __init__(self, timeout: int = 10, user_agent: str = DEFAULT_UA,
+                 retries: int = 2, headers: dict | None = None):
         self.timeout = timeout
         self._scheme = {}  # domain -> scheme that worked last time
         self.session = requests.Session()
@@ -17,6 +18,7 @@ class HttpClient:
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
         self.session.headers["User-Agent"] = user_agent
+        self.session.headers.update(headers or {})
 
     def get(self, url: str, **kwargs) -> requests.Response:
         kwargs.setdefault("timeout", self.timeout)

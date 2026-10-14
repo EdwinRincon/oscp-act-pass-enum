@@ -9,7 +9,8 @@ from osint.report.console import Console
 from osint.report.html_report import write_html
 from osint.report.json_writer import write_json
 from osint.report.serialize import to_dict
-from osint.service import prepare, run_scan
+from osint.http_client import DEFAULT_UA
+from osint.service import prepare, run_scan, validate_http_options
 
 
 def parse_args():
@@ -24,7 +25,10 @@ def parse_args():
     p.add_argument("--out", default="output", help="report directory (default: output)")
     p.add_argument("--operator", default="", help="analyst name recorded in the report")
     p.add_argument("--note", default="", help="engagement/ticket reference recorded in the report")
-    p.add_argument("--timeout", type=int, default=10)
+    p.add_argument("--timeout", type=int, default=10, help="request timeout in seconds (3-30)")
+    p.add_argument("--user-agent", default=DEFAULT_UA, help="HTTP User-Agent value")
+    p.add_argument("--header", action="append", default=[], metavar="NAME: VALUE",
+                   help="custom HTTP header; may be repeated")
     p.add_argument("--no-color", action="store_true")
     p.add_argument("-q", "--quiet", action="store_true", help="summary only")
     p.add_argument("--i-have-permission", action="store_true",
@@ -48,6 +52,8 @@ def main():
 
     mode = "all" if args.only else args.mode
     try:
+        timeout, user_agent, _ = validate_http_options(
+            args.timeout, args.user_agent, args.header)
         domain, specs = prepare(args.domain, mode, csv(args.only), csv(args.exclude),
                                 args.i_have_permission)
     except ScanError as exc:
@@ -55,9 +61,10 @@ def main():
 
     if not args.quiet:
         ui.banner(f"osint-enum {__version__}", domain, "custom" if args.only else args.mode)
-    report = run_scan(domain, mode, csv(args.only), csv(args.exclude), args.timeout,
+    report = run_scan(domain, mode, csv(args.only), csv(args.exclude), timeout,
                       args.operator, args.note, args.i_have_permission,
-                      on_result=None if args.quiet else ui.module)
+                      on_result=None if args.quiet else ui.module,
+                      user_agent=user_agent, headers=args.header)
     data = to_dict(report)
     ui.summary(report.results, report.duration)
     if args.json:

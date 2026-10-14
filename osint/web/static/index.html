@@ -29,6 +29,12 @@
         <summary>Advanced</summary>
         <label for="timeout">Request timeout (seconds)</label>
         <input id="timeout" type="number" min="3" max="30" value="10">
+        <label for="user-agent">User-Agent</label>
+        <input id="user-agent" maxlength="512" autocomplete="off">
+        <label for="headers">Custom HTTP headers (one <code>Name: value</code> per line)</label>
+        <textarea id="headers" rows="4" maxlength="8192" autocomplete="off"></textarea>
+        <p class="mut">Header values are not included in reports. Host, Content-Length,
+          Transfer-Encoding, Connection, and User-Agent cannot be overridden here.</p>
         <label for="operator">Operator (recorded in report)</label>
         <input id="operator" maxlength="80" autocomplete="off">
         <label for="note">Engagement note / ticket (recorded in report)</label>

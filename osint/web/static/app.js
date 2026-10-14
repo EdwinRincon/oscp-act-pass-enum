@@ -115,6 +115,8 @@ async function onSubmit(e) {
   try {
     const job = await api("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ domain, modules: chosen, timeout: Number($("#timeout").value),
+        user_agent: $("#user-agent").value,
+        headers: $("#headers").value.split(/\r?\n/).filter((line) => line.trim()),
         operator: $("#operator").value, note: $("#note").value, authorised: $("#auth").checked }) });
     await poll(job.id);
   } catch (ex) {
@@ -128,6 +130,9 @@ async function onSubmit(e) {
 async function init() {
   const info = await api("/api/modules");
   $("#ver").textContent = `v${info.version}`;
+  $("#timeout").min = info.http.min_timeout;
+  $("#timeout").max = info.http.max_timeout;
+  $("#user-agent").value = info.http.default_user_agent;
   for (const m of info.modules) {
     const box = el("input", { type: "checkbox", "data-id": m.id, "data-phase": m.phase });
     box.checked = m.phase === "passive";

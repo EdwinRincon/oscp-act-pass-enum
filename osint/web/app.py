@@ -7,11 +7,12 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from osint import __version__
+from osint.http_client import DEFAULT_UA
 from osint.models import ScanError
 from osint.registry import SPECS
 from osint.report.html_report import render_html
 from osint.report.serialize import stem, to_dict
-from osint.service import prepare, run_scan
+from osint.service import MAX_TIMEOUT, MIN_TIMEOUT, prepare, run_scan, validate_http_options
 
 STATIC = Path(__file__).parent / "static"
 FILES = {"/": ("index.html", "text/html; charset=utf-8"),
@@ -106,7 +107,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/modules":
             return self._json(200, {"version": __version__, "modules": [
                 {"id": s.id, "title": s.title, "phase": s.phase, "source": s.source,
-                 "kind": s.kind, "confidence": s.confidence} for s in SPECS]})
+                 "kind": s.kind, "confidence": s.confidence} for s in SPECS],
+                "http": {"default_user_agent": DEFAULT_UA,
+                         "min_timeout": MIN_TIMEOUT, "max_timeout": MAX_TIMEOUT}})
         parts = path.split("/")  # ['', 'api', 'scan', id, optional file]
         if len(parts) in (4, 5) and parts[1:3] == ["api", "scan"]:
             job = self.server.jobs.get(parts[3])
@@ -134,9 +137,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(413, {"error": "bad body size"})
         try:
             body = json.loads(self.rfile.read(length))
+            timeout, user_agent, headers = validate_http_options(
+                body.get("timeout", 10),
+                body.get("user_agent", DEFAULT_UA),
+                body.get("headers", []))
             params = {"domain": str(body.get("domain", ""))[:253], "mode": "all",
                       "only": [str(m) for m in body.get("modules", [])],
-                      "timeout": max(3, min(int(body.get("timeout", 10)), 30)),
+                      "timeout": timeout, "user_agent": user_agent,
+                      "headers": [f"{name}: {value}" for name, value in headers.items()],
                       "operator": str(body.get("operator", ""))[:80],
                       "note": str(body.get("note", ""))[:300],
                       "authorised": body.get("authorised") is True}

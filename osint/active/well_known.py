@@ -15,7 +15,7 @@ class WellKnown(Module):
         rows = []
         for path in PATHS:
             try:
-                r = self.client.get_site(domain, path, timeout=5)
+                r = self.client.get_site(domain, path)
             except requests.exceptions.RequestException as exc:
                 rows.append((path, "failed", type(exc).__name__))
                 continue

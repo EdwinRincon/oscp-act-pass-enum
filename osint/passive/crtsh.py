@@ -16,8 +16,7 @@ class CrtSh(Module):
         self.client = client
 
     def run(self, domain):
-        r = self.client.get("https://crt.sh/", params={"q": f"%.{domain}", "output": "json"},
-                            timeout=30)
+        r = self.client.get("https://crt.sh/", params={"q": f"%.{domain}", "output": "json"})
         
         if r.status_code == 404:
             return self.result(["SUBDOMAIN", "FIRST SEEN"], [])

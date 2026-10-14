@@ -46,6 +46,25 @@ python enum_tool.py -d example.com --only whois,crtsh
 
 `--only` acepta identificadores separados por comas y selecciona esos módulos. Usa `--exclude` para omitir módulos concretos. Si la selección incluye módulos activos, también se requiere `--i-have-permission`.
 
+### Opciones HTTP
+
+Las peticiones HTTP usan por defecto un timeout de 10 segundos y un User-Agent
+predeterminado. `--timeout` configura el timeout de todas las peticiones y acepta valores de
+3 a 30 segundos. Puedes personalizar el User-Agent (hasta 512 caracteres) y añadir hasta
+40 cabeceras con `--header` (repetible):
+
+```bash
+python enum_tool.py -d example.com --user-agent "OSCP-lab/1.0" \
+  --header "X-Engagement: LAB-42" --timeout 15
+```
+
+La interfaz web ofrece los mismos ajustes en **Advanced**. Las cabeceras personalizadas se
+escriben una por línea como `Nombre: valor`; cada valor puede tener hasta 4096 caracteres y
+el total de nombres y valores no puede superar 8192 caracteres. Por seguridad, no se pueden reemplazar
+`Host`, `Content-Length`, `Transfer-Encoding`, `Connection` ni `User-Agent`; este último se
+configura en su campo específico. Los informes registran el User-Agent y los nombres de las
+cabeceras personalizadas, pero no sus valores.
+
 ## Comprobar cabeceras de seguridad
 
 El script realiza una petición HTTP y muestra si están presentes varias cabeceras de seguridad, además de señalar algunas cabeceras que pueden revelar información del servidor. Si no se especifica el protocolo, se usa HTTPS:
