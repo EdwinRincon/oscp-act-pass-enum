@@ -1,0 +1,5 @@
+pip install -r requirements.txt
+python enum_tool.py -d example.com                         # passive only
+python enum_tool.py -d example.com -m all --i-have-permission --json
+python ua_server.py --port 8080                            # terminal 1
+python headers_check.py http://127.0.0.1:8080              # terminal 2: server prints your UA

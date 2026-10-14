@@ -1,0 +1,68 @@
+<!-- osint/web/static/index.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>osint-enum</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header><h1>osint-enum <span class="mut" id="ver"></span></h1>
+  <p class="mut">Passive and active domain enumeration. Free public sources only.</p></header>
+<main>
+  <section class="panel" aria-labelledby="scan-h">
+    <h2 id="scan-h">Scan</h2>
+    <form id="scan-form" novalidate>
+      <label for="domain">Target domain</label>
+      <input id="domain" placeholder="example.com" autocomplete="off" spellcheck="false" required>
+      <fieldset id="modules">
+        <legend>Modules</legend>
+        <p class="mut">Passive: public third-party sources, nothing is sent to the target.</p>
+        <div id="mod-passive"></div>
+        <p class="mut">Active: contacts the target directly and appears in its logs.</p>
+        <div id="mod-active"></div>
+        <label class="check auth"><input type="checkbox" id="auth">
+          <span>I own this target or have written authorisation to test it.</span></label>
+      </fieldset>
+      <details>
+        <summary>Advanced</summary>
+        <label for="timeout">Request timeout (seconds)</label>
+        <input id="timeout" type="number" min="3" max="30" value="10">
+        <label for="operator">Operator (recorded in report)</label>
+        <input id="operator" maxlength="80" autocomplete="off">
+        <label for="note">Engagement note / ticket (recorded in report)</label>
+        <input id="note" maxlength="300" autocomplete="off">
+      </details>
+      <p id="form-err" class="bad" role="alert"></p>
+      <button id="run" type="submit">Run scan</button>
+    </form>
+  </section>
+
+  <section id="progress" class="panel" hidden aria-live="polite">
+    <h2>Progress</h2>
+    <progress id="bar" value="0" max="1"></progress>
+    <p id="status" class="mut"></p>
+    <ul id="done" class="plain"></ul>
+  </section>
+
+  <section id="results" hidden aria-labelledby="res-h">
+    <h2 id="res-h">Results</h2>
+    <div id="summary" class="panel"></div>
+    <div class="toolbar" role="search">
+      <input id="q" type="search" placeholder="Filter rows..." aria-label="Filter rows">
+      <select id="f-phase" aria-label="Phase"><option value="all">All phases</option>
+        <option value="passive">Passive</option><option value="active">Active</option></select>
+      <select id="f-status" aria-label="Status"><option value="all">All statuses</option>
+        <option value="ok">OK</option><option value="failed">Failed</option></select>
+      <select id="f-conf" aria-label="Confidence"><option value="all">All confidence</option>
+        <option value="High">High</option><option value="Moderate">Moderate</option>
+        <option value="n/a">n/a (leads)</option></select>
+    </div>
+    <div id="cards"></div>
+    <p id="empty" class="mut" hidden>No results match the current filters.</p>
+  </section>
+</main>
+<script src="/static/app.js"></script>
+</body>
+</html>
