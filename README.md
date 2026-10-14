@@ -80,6 +80,12 @@ python web_server.py
 
 Visita <http://127.0.0.1:8000>. La interfaz no tiene autenticación; mantenla en una dirección local y no la expongas a una red pública.
 
+### Captura de la interfaz web
+
+La siguiente captura muestra la interfaz con un resultado real:
+
+![Captura de la interfaz web con un resultado real](docs/images/web-result.png)
+
 ## Uso responsable
 
 Ejecuta módulos activos únicamente sobre dominios propios o para los que tengas autorización explícita. Las consultas activas contactan directamente con el objetivo y pueden quedar registradas por este.
