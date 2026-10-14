@@ -1,5 +1,6 @@
 # osint/web/app.py
 import json
+import shutil
 import threading
 import uuid
 from dataclasses import asdict
@@ -7,12 +8,15 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from osint import __version__
+from osint.active.rustscan import (DEFAULT_EXECUTION_TIMEOUT, DEFAULT_PORTS,
+                                   MAX_EXECUTION_TIMEOUT, MIN_EXECUTION_TIMEOUT)
 from osint.http_client import DEFAULT_UA
 from osint.models import ScanError
 from osint.registry import SPECS
 from osint.report.html_report import render_html
 from osint.report.serialize import stem, to_dict
-from osint.service import MAX_TIMEOUT, MIN_TIMEOUT, prepare, run_scan, validate_http_options
+from osint.service import (MAX_TIMEOUT, MIN_TIMEOUT, prepare, run_scan,
+                           validate_http_options, validate_module_options)
 
 STATIC = Path(__file__).parent / "static"
 FILES = {"/": ("index.html", "text/html; charset=utf-8"),
@@ -20,7 +24,7 @@ FILES = {"/": ("index.html", "text/html; charset=utf-8"),
          "/static/style.css": ("style.css", "text/css; charset=utf-8")}
 UI_CSP = "default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"
 REPORT_CSP = "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'"
-MAX_BODY, MAX_JOBS = 8192, 20
+MAX_BODY, MAX_JOBS = 16384, 20
 
 
 class BusyError(Exception):
@@ -107,9 +111,17 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/modules":
             return self._json(200, {"version": __version__, "modules": [
                 {"id": s.id, "title": s.title, "phase": s.phase, "source": s.source,
-                 "kind": s.kind, "confidence": s.confidence} for s in SPECS],
+                 "kind": s.kind, "confidence": s.confidence,
+                 "optional": bool(s.executable),
+                 "auto_when_active": s.auto_when_active,
+                 "available": not s.executable or bool(shutil.which(s.executable))}
+                for s in SPECS],
                 "http": {"default_user_agent": DEFAULT_UA,
-                         "min_timeout": MIN_TIMEOUT, "max_timeout": MAX_TIMEOUT}})
+                         "min_timeout": MIN_TIMEOUT, "max_timeout": MAX_TIMEOUT,
+                         "default_rustscan_ports": DEFAULT_PORTS,
+                         "default_rustscan_timeout": DEFAULT_EXECUTION_TIMEOUT,
+                         "min_rustscan_timeout": MIN_EXECUTION_TIMEOUT,
+                         "max_rustscan_timeout": MAX_EXECUTION_TIMEOUT}})
         parts = path.split("/")  # ['', 'api', 'scan', id, optional file]
         if len(parts) in (4, 5) and parts[1:3] == ["api", "scan"]:
             job = self.server.jobs.get(parts[3])
@@ -145,12 +157,17 @@ class Handler(BaseHTTPRequestHandler):
                       "only": [str(m) for m in body.get("modules", [])],
                       "timeout": timeout, "user_agent": user_agent,
                       "headers": [f"{name}: {value}" for name, value in headers.items()],
+                      "module_options": {"rustscan_ports": body.get("rustscan_ports", DEFAULT_PORTS),
+                                         "rustscan_timeout": body.get(
+                                             "rustscan_timeout", DEFAULT_EXECUTION_TIMEOUT),
+                                         "exploit_query": body.get("exploit_query", "")},
                       "operator": str(body.get("operator", ""))[:80],
                       "note": str(body.get("note", ""))[:300],
                       "authorised": body.get("authorised") is True}
             if not params["only"]:
                 raise ScanError("no modules selected")
             _, specs = prepare(params["domain"], "all", params["only"], None, params["authorised"])
+            params["module_options"] = validate_module_options(params["module_options"], specs)
             job = self.server.jobs.start(params, len(specs))
         except ScanError as exc:
             return self._json(400, {"error": str(exc)})

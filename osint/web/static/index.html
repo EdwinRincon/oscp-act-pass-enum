@@ -9,16 +9,16 @@
 </head>
 <body>
 <header><h1>osint-enum <span class="mut" id="ver"></span></h1>
-  <p class="mut">Passive and active domain enumeration. Free public sources only.</p></header>
+  <p class="mut">Passive and active enumeration with optional port scanning and local exploit-reference lookup.</p></header>
 <main>
   <section class="panel" aria-labelledby="scan-h">
     <h2 id="scan-h">Scan</h2>
     <form id="scan-form" novalidate>
-      <label for="domain">Target domain</label>
+      <label for="domain">Target domain or IPv4 address</label>
       <input id="domain" placeholder="example.com" autocomplete="off" spellcheck="false" required>
       <fieldset id="modules">
         <legend>Modules</legend>
-        <p class="mut">Passive: public third-party sources, nothing is sent to the target.</p>
+        <p class="mut">Passive: no requests are sent to the target; sources may be public or local.</p>
         <div id="mod-passive"></div>
         <p class="mut">Active: contacts the target directly and appears in its logs.</p>
         <div id="mod-active"></div>
@@ -35,6 +35,13 @@
         <textarea id="headers" rows="4" maxlength="8192" autocomplete="off"></textarea>
         <p class="mut">Header values are not included in reports. Host, Content-Length,
           Transfer-Encoding, Connection, and User-Agent cannot be overridden here.</p>
+        <label for="rustscan-ports">RustScan ports (comma-separated; maximum 64)</label>
+        <input id="rustscan-ports" maxlength="320" autocomplete="off">
+        <label for="rustscan-timeout">RustScan execution limit (seconds)</label>
+        <input id="rustscan-timeout" type="number" min="10" max="300" value="60">
+        <p class="mut">SearchSploit searches the local Exploit-DB database and displays
+          references automatically when enumeration detects software banners. It does not run
+          exploits. RustScan performs active port scanning and requires explicit authorization.</p>
         <label for="operator">Operator (recorded in report)</label>
         <input id="operator" maxlength="80" autocomplete="off">
         <label for="note">Engagement note / ticket (recorded in report)</label>

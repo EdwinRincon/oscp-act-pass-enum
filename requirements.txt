@@ -1,2 +1,5 @@
 requests>=2.31
 dnspython>=2.4
+typer>=0.12
+rich>=13.7
+InquirerPy>=0.3.4
