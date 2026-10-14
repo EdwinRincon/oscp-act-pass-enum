@@ -126,6 +126,7 @@ async function onSubmit(e) {
         headers: $("#headers").value.split(/\r?\n/).filter((line) => line.trim()),
         rustscan_ports: $("#rustscan-ports").value,
         rustscan_timeout: Number($("#rustscan-timeout").value),
+        ...($("#rustscan-batch") ? { rustscan_batch: Number($("#rustscan-batch").value) } : {}),
         operator: $("#operator").value, note: $("#note").value, authorised: $("#auth").checked }) });
     await poll(job.id);
   } catch (ex) {
@@ -138,45 +139,60 @@ async function onSubmit(e) {
 
 async function init() {
   const info = await api("/api/modules");
+  const http = info.http;
   $("#ver").textContent = `v${info.version}`;
-  $("#timeout").min = info.http.min_timeout;
-  $("#timeout").max = info.http.max_timeout;
-  $("#user-agent").value = info.http.default_user_agent;
-  $("#rustscan-ports").value = info.http.default_rustscan_ports;
-  $("#rustscan-timeout").min = info.http.min_rustscan_timeout;
-  $("#rustscan-timeout").max = info.http.max_rustscan_timeout;
-  $("#rustscan-timeout").value = info.http.default_rustscan_timeout;
+  $("#timeout").min = http.min_timeout;
+  $("#timeout").max = http.max_timeout;
+  $("#user-agent").value = http.default_user_agent;
+  $("#rustscan-ports").value = http.default_rustscan_ports;
+  $("#rustscan-timeout").min = http.min_rustscan_timeout;
+  $("#rustscan-timeout").max = http.max_rustscan_timeout;
+  $("#rustscan-timeout").value = http.default_rustscan_timeout;
+  const batch = $("#rustscan-batch");
+  if (batch) {
+    batch.min = http.min_rustscan_batch;
+    batch.max = http.max_rustscan_batch;
+    batch.value = http.default_rustscan_batch;
+  }
+
+  const boxes = new Map();
+  const dependents = [];
   for (const m of info.modules) {
     const box = el("input", { type: "checkbox", "data-id": m.id, "data-phase": m.phase,
-      "data-available": String(m.available), "data-auto-active": String(m.auto_when_active) });
+      "data-available": String(m.available) });
     box.checked = m.phase === "passive" && m.available && !m.optional;
     box.disabled = m.phase === "active" || !m.available;
+    boxes.set(m.id, box);
+    if (m.requires.length) dependents.push({ box, requires: m.requires });
     const availability = m.available ? "" : " · not installed";
-    if (m.id === "searchsploit") box.dataset.searchsploit = "true";
+    const optIn = m.opt_in ? " · opt-in" : "";
     $(`#mod-${m.phase}`).append(el("label", { class: "check" }, box,
-      el("span", {}, m.title, el("small", { class: "mut", text: ` · ${m.source}${availability}` }))));
+      el("span", {}, m.title, el("small", { class: "mut", text: ` · ${m.source}${optIn}${availability}` }))));
   }
-  const searchsploit = $('input[data-searchsploit="true"]');
-  const syncExploitSearch = () => {
-    const activeSelected = [...document.querySelectorAll('input[data-phase="active"]:checked')].length > 0;
-    if (!searchsploit || searchsploit.dataset.available !== "true") return;
-    if (activeSelected) {
-      searchsploit.checked = true;
-      searchsploit.dataset.autoChecked = "true";
-    } else if (searchsploit.dataset.autoChecked === "true") {
-      searchsploit.checked = false;
-      delete searchsploit.dataset.autoChecked;
+
+  // Un módulo con `requires` se marca solo si todas sus dependencias están marcadas.
+  const syncDependents = () => {
+    for (const { box, requires } of dependents) {
+      if (box.dataset.available !== "true") continue;
+      const ready = requires.every((id) => boxes.get(id)?.checked);
+      if (ready) {
+        box.checked = true;
+        box.dataset.autoChecked = "true";
+      } else if (box.dataset.autoChecked === "true") {
+        box.checked = false;
+        delete box.dataset.autoChecked;
+      }
     }
   };
-  document.querySelectorAll('input[data-phase="active"]').forEach((box) =>
-    box.addEventListener("change", syncExploitSearch));
+  boxes.forEach((box) => box.addEventListener("change", syncDependents));
   $("#auth").addEventListener("change", (e) => {
     document.querySelectorAll('input[data-phase="active"]').forEach((b) => {
       b.disabled = !e.target.checked || b.dataset.available === "false";
       if (!e.target.checked) b.checked = false;
     });
-    syncExploitSearch();
+    syncDependents();
   });
+
   $("#scan-form").addEventListener("submit", onSubmit);
   for (const [id, key] of [["q", "q"], ["f-phase", "phase"], ["f-status", "status"], ["f-conf", "conf"]]) {
     $(`#${id}`).addEventListener("input", (e) => { filters[key] = e.target.value; if (report) renderResults(); });

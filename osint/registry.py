@@ -1,6 +1,6 @@
 # osint/registry.py
-from dataclasses import dataclass
 import shutil
+from dataclasses import dataclass
 from typing import Callable
 
 from osint.active.dns_records import DnsRecords
@@ -14,6 +14,8 @@ from osint.passive.searchsploit import SearchSploit
 from osint.passive.wayback import Wayback
 from osint.passive.whois_lookup import WhoisLookup
 
+MODES = ("passive", "active", "all")
+
 
 @dataclass(frozen=True)
 class ModuleSpec:
@@ -25,50 +27,82 @@ class ModuleSpec:
     confidence: str
     factory: Callable
     executable: str = ""
-    auto_when_active: bool = False
+    opt_in: bool = False     # solo se ejecuta con --only (intrusivo)
+    requires: tuple = ()     # ids de módulos cuyo resultado necesita
 
 
+# El orden importa: los módulos con `requires` van después de sus dependencias.
 SPECS = (
     ModuleSpec("whois", "WHOIS (RDAP)", "passive", "RDAP registry data via rdap.org",
                "finding", "High", WhoisLookup),
-    ModuleSpec("crtsh", "Certificate Transparency", "passive", "crt.sh (third-party CT log search)",
-               "finding", "Moderate", CrtSh),
+    ModuleSpec("crtsh", "Certificate Transparency", "passive",
+               "crt.sh (third-party CT log search)", "finding", "Moderate", CrtSh),
     ModuleSpec("wayback", "Web archive", "passive", "archive.org Availability API",
                "finding", "Moderate", Wayback),
     ModuleSpec("dorks", "Search links", "passive", "generated links, no request sent",
-               "lead", "n/a", lambda _client: DorkLinks()),
-    ModuleSpec("searchsploit", "SearchSploit references", "passive",
-               "local Exploit-DB database; automatically searches detected banners",
-               "finding", "Moderate",
-               SearchSploit, "searchsploit", True),
+               "lead", "n/a", lambda _context: DorkLinks()),
     ModuleSpec("dns", "DNS records", "active", "direct DNS query (system resolver)",
-               "finding", "High", lambda _client: DnsRecords()),
-    ModuleSpec("wellknown", "robots.txt / sitemap.xml", "active", "direct HTTP(S) request to target",
-               "finding", "High", WellKnown),
-    ModuleSpec("fingerprint", "Technology fingerprint", "active", "direct HTTP(S) request to target",
-               "finding", "High", Fingerprint),
+               "finding", "High", lambda _context: DnsRecords()),
+    ModuleSpec("wellknown", "robots.txt / sitemap.xml", "active",
+               "direct HTTP(S) request to target", "finding", "High", WellKnown),
+    ModuleSpec("fingerprint", "Technology fingerprint", "active",
+               "direct HTTP(S) request to target", "finding", "High", Fingerprint),
     ModuleSpec("rustscan", "RustScan port discovery", "active",
                "external port scanner; selected ports only", "finding", "High",
-               RustScan, "rustscan"),
+               RustScan, executable="rustscan", opt_in=True),
+    ModuleSpec("searchsploit", "SearchSploit references", "passive",
+               "local Exploit-DB database; searches detected banners",
+               "finding", "Moderate", SearchSploit,
+               executable="searchsploit", requires=("fingerprint",)),
 )
 
 
+def is_available(spec):
+    return not spec.executable or bool(shutil.which(spec.executable))
+
+
+def _phases(mode):
+    return {"passive", "active"} if mode == "all" else {mode}
+
+
+def candidates(mode):
+    """Módulos que el usuario puede elegir para un perfil (solo los disponibles)."""
+    phases = _phases(mode)
+    return [s for s in SPECS if s.phase in phases and is_available(s)]
+
+
+def unavailable(mode):
+    """Módulos del perfil cuya herramienta externa no está instalada."""
+    phases = _phases(mode)
+    return [s for s in SPECS if s.phase in phases and not is_available(s)]
+
+
+def default_ids(mode):
+    return {s.id for s in select(mode)}
+
+
 def select(mode="passive", only=None, exclude=None):
-    known = {s.id for s in SPECS}
-    for bad in set(only or []) | set(exclude or []):
-        if bad not in known:
-            raise ScanError(f"unknown module: {bad}")
-    auto_active = mode in ("active", "all") and not only
-    specs = [
-        s for s in SPECS
-        if (s.id in only if only else
-            (mode == "all" or s.phase == mode or
-             (auto_active and s.auto_when_active)))
-        and (not s.executable or s.id in (only or []) or
-             (auto_active and s.auto_when_active and shutil.which(s.executable)))
-    ]
+    if mode not in MODES:
+        raise ScanError(f"unknown mode: {mode} (expected one of {', '.join(MODES)})")
+    only, exclude = set(only or ()), set(exclude or ())
+    unknown = (only | exclude) - {s.id for s in SPECS}
+    if unknown:
+        raise ScanError(f"unknown module(s): {', '.join(sorted(unknown))}")
+    if only & exclude:
+        raise ScanError(
+            f"module(s) both included and excluded: {', '.join(sorted(only & exclude))}")
     if only:
-        specs = [s for s in specs if s.id in only]
-    if exclude:
-        specs = [s for s in specs if s.id not in exclude]
-    return specs
+        return [s for s in SPECS if s.id in only]
+
+    phases = _phases(mode)
+    base_ids = {s.id for s in SPECS
+                if s.phase in phases and not s.opt_in and not s.requires
+                and s.id not in exclude}
+    selected = []
+    for spec in SPECS:
+        if spec.id in base_ids:
+            selected.append(spec)
+        elif (spec.requires and not spec.opt_in and spec.id not in exclude
+              and set(spec.requires) <= base_ids and is_available(spec)):
+            selected.append(spec)
+    return selected

@@ -39,6 +39,8 @@
         <input id="rustscan-ports" maxlength="320" autocomplete="off">
         <label for="rustscan-timeout">RustScan execution limit (seconds)</label>
         <input id="rustscan-timeout" type="number" min="10" max="300" value="60">
+        <label for="rustscan-batch">RustScan batch size (concurrent connections)</label>
+        <input id="rustscan-batch" type="number" min="10" max="4500" step="10" value="500">
         <p class="mut">SearchSploit searches the local Exploit-DB database and displays
           references automatically when enumeration detects software banners. It does not run
           exploits. RustScan performs active port scanning and requires explicit authorization.</p>
@@ -67,7 +69,8 @@
       <select id="f-phase" aria-label="Phase"><option value="all">All phases</option>
         <option value="passive">Passive</option><option value="active">Active</option></select>
       <select id="f-status" aria-label="Status"><option value="all">All statuses</option>
-        <option value="ok">OK</option><option value="failed">Failed</option></select>
+        <option value="ok">OK</option><option value="failed">Failed</option>
+        <option value="skipped">Skipped</option></select>
       <select id="f-conf" aria-label="Confidence"><option value="all">All confidence</option>
         <option value="High">High</option><option value="Moderate">Moderate</option>
         <option value="n/a">n/a (leads)</option></select>

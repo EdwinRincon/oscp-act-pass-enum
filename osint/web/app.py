@@ -1,6 +1,6 @@
 # osint/web/app.py
 import json
-import shutil
+import logging
 import threading
 import uuid
 from dataclasses import asdict
@@ -8,15 +8,18 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 from osint import __version__
-from osint.active.rustscan import (DEFAULT_EXECUTION_TIMEOUT, DEFAULT_PORTS,
-                                   MAX_EXECUTION_TIMEOUT, MIN_EXECUTION_TIMEOUT)
+from osint.active.rustscan import (DEFAULT_BATCH, DEFAULT_EXECUTION_TIMEOUT, DEFAULT_PORTS,
+                                   MAX_BATCH, MAX_EXECUTION_TIMEOUT, MIN_BATCH,
+                                   MIN_EXECUTION_TIMEOUT)
 from osint.http_client import DEFAULT_UA
 from osint.models import ScanError
-from osint.registry import SPECS
+from osint.registry import SPECS, is_available
 from osint.report.html_report import render_html
-from osint.report.serialize import stem, to_dict
+from osint.report.serialize import to_dict
 from osint.service import (MAX_TIMEOUT, MIN_TIMEOUT, prepare, run_scan,
                            validate_http_options, validate_module_options)
+
+log = logging.getLogger(__name__)
 
 STATIC = Path(__file__).parent / "static"
 FILES = {"/": ("index.html", "text/html; charset=utf-8"),
@@ -29,6 +32,12 @@ MAX_BODY, MAX_JOBS = 16384, 20
 
 class BusyError(Exception):
     pass
+
+
+class RequestError(Exception):
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code, self.message = code, message
 
 
 class Job:
@@ -69,10 +78,62 @@ class Jobs:
         except ScanError as exc:
             job.status, job.error = "error", str(exc)
         except Exception:
+            log.exception("scan job %s failed", job.id)
             job.status, job.error = "error", "internal error"
 
     def get(self, job_id):
-        return self._items.get(job_id)
+        with self._lock:
+            return self._items.get(job_id)
+
+
+def modules_payload():
+    return {
+        "version": __version__,
+        "modules": [
+            {"id": s.id, "title": s.title, "phase": s.phase, "source": s.source,
+             "kind": s.kind, "confidence": s.confidence,
+             "optional": bool(s.executable),
+             "opt_in": s.opt_in,
+             "requires": list(s.requires),
+             "available": is_available(s)}
+            for s in SPECS],
+        "http": {"default_user_agent": DEFAULT_UA,
+                 "min_timeout": MIN_TIMEOUT, "max_timeout": MAX_TIMEOUT,
+                 "default_rustscan_ports": DEFAULT_PORTS,
+                 "default_rustscan_timeout": DEFAULT_EXECUTION_TIMEOUT,
+                 "min_rustscan_timeout": MIN_EXECUTION_TIMEOUT,
+                 "max_rustscan_timeout": MAX_EXECUTION_TIMEOUT,
+                 "default_rustscan_batch": DEFAULT_BATCH,
+                 "min_rustscan_batch": MIN_BATCH,
+                 "max_rustscan_batch": MAX_BATCH},
+    }
+
+
+def build_scan_params(body):
+    """Valida el cuerpo JSON y devuelve los parámetros de run_scan. Lanza ScanError."""
+    if not isinstance(body, dict):
+        raise ScanError("request body must be a JSON object")
+    modules = body.get("modules", [])
+    if not isinstance(modules, list) or not modules:
+        raise ScanError("no modules selected")
+    timeout, user_agent, headers = validate_http_options(
+        body.get("timeout", 10), body.get("user_agent", DEFAULT_UA), body.get("headers", []))
+    return {
+        "domain": str(body.get("domain", ""))[:253],
+        "mode": "all",
+        "only": [str(module) for module in modules],
+        "timeout": timeout,
+        "user_agent": user_agent,
+        "headers": [f"{name}: {value}" for name, value in headers.items()],
+        "module_options": {
+            "rustscan_ports": body.get("rustscan_ports", DEFAULT_PORTS),
+            "rustscan_timeout": body.get("rustscan_timeout", DEFAULT_EXECUTION_TIMEOUT),
+            "rustscan_batch": body.get("rustscan_batch", DEFAULT_BATCH),
+            "exploit_query": body.get("exploit_query", "")},
+        "operator": str(body.get("operator", ""))[:80],
+        "note": str(body.get("note", ""))[:300],
+        "authorised": body.get("authorised") is True,
+    }
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -101,6 +162,17 @@ class Handler(BaseHTTPRequestHandler):
             return False
         return origin is None or origin == f"http://{host}"
 
+    def _read_body(self):
+        if not self.headers.get("Content-Type", "").startswith("application/json"):
+            raise RequestError(415, "content-type must be application/json")
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            raise RequestError(400, "invalid Content-Length") from None
+        if not 0 < length <= MAX_BODY:
+            raise RequestError(413, "bad body size")
+        return json.loads(self.rfile.read(length))
+
     def do_GET(self):
         if not self._guard():
             return self._json(403, {"error": "forbidden host or origin"})
@@ -109,19 +181,7 @@ class Handler(BaseHTTPRequestHandler):
             name, ctype = FILES[path]
             return self._send(200, (STATIC / name).read_bytes(), ctype)
         if path == "/api/modules":
-            return self._json(200, {"version": __version__, "modules": [
-                {"id": s.id, "title": s.title, "phase": s.phase, "source": s.source,
-                 "kind": s.kind, "confidence": s.confidence,
-                 "optional": bool(s.executable),
-                 "auto_when_active": s.auto_when_active,
-                 "available": not s.executable or bool(shutil.which(s.executable))}
-                for s in SPECS],
-                "http": {"default_user_agent": DEFAULT_UA,
-                         "min_timeout": MIN_TIMEOUT, "max_timeout": MAX_TIMEOUT,
-                         "default_rustscan_ports": DEFAULT_PORTS,
-                         "default_rustscan_timeout": DEFAULT_EXECUTION_TIMEOUT,
-                         "min_rustscan_timeout": MIN_EXECUTION_TIMEOUT,
-                         "max_rustscan_timeout": MAX_EXECUTION_TIMEOUT}})
+            return self._json(200, modules_payload())
         parts = path.split("/")  # ['', 'api', 'scan', id, optional file]
         if len(parts) in (4, 5) and parts[1:3] == ["api", "scan"]:
             job = self.server.jobs.get(parts[3])
@@ -142,33 +202,14 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(403, {"error": "forbidden host or origin"})
         if self.path != "/api/scan":
             return self._json(404, {"error": "not found"})
-        if not self.headers.get("Content-Type", "").startswith("application/json"):
-            return self._json(415, {"error": "content-type must be application/json"})
-        length = int(self.headers.get("Content-Length") or 0)
-        if not 0 < length <= MAX_BODY:
-            return self._json(413, {"error": "bad body size"})
         try:
-            body = json.loads(self.rfile.read(length))
-            timeout, user_agent, headers = validate_http_options(
-                body.get("timeout", 10),
-                body.get("user_agent", DEFAULT_UA),
-                body.get("headers", []))
-            params = {"domain": str(body.get("domain", ""))[:253], "mode": "all",
-                      "only": [str(m) for m in body.get("modules", [])],
-                      "timeout": timeout, "user_agent": user_agent,
-                      "headers": [f"{name}: {value}" for name, value in headers.items()],
-                      "module_options": {"rustscan_ports": body.get("rustscan_ports", DEFAULT_PORTS),
-                                         "rustscan_timeout": body.get(
-                                             "rustscan_timeout", DEFAULT_EXECUTION_TIMEOUT),
-                                         "exploit_query": body.get("exploit_query", "")},
-                      "operator": str(body.get("operator", ""))[:80],
-                      "note": str(body.get("note", ""))[:300],
-                      "authorised": body.get("authorised") is True}
-            if not params["only"]:
-                raise ScanError("no modules selected")
-            _, specs = prepare(params["domain"], "all", params["only"], None, params["authorised"])
+            params = build_scan_params(self._read_body())
+            _, specs = prepare(params["domain"], "all", params["only"], None,
+                               params["authorised"])
             params["module_options"] = validate_module_options(params["module_options"], specs)
             job = self.server.jobs.start(params, len(specs))
+        except RequestError as exc:
+            return self._json(exc.code, {"error": exc.message})
         except ScanError as exc:
             return self._json(400, {"error": str(exc)})
         except BusyError:
