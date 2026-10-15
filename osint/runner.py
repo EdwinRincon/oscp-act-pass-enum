@@ -1,12 +1,14 @@
-# osint/runner.py
+from __future__ import annotations
+
 import logging
 import time
 from datetime import datetime, timezone
 
 from osint.base import ScanContext
-from osint.models import ModuleResult, ScanError
+from osint.models import ModuleResult, ScanError, Status
 
 INTERRUPTED = "interrupted by user"
+MAX_ERROR_LENGTH = 300
 log = logging.getLogger(__name__)
 
 
@@ -37,6 +39,10 @@ def _notify(callback, *args):
         log.debug("callback failed", exc_info=True)
 
 
+def _failed(spec, error: str) -> ModuleResult:
+    return ModuleResult(spec.title, spec.phase, Status.FAILED, error=error)
+
+
 def _execute(spec, context, domain):
     """Ejecuta un módulo y devuelve (resultado, interrumpido)."""
     try:
@@ -45,10 +51,22 @@ def _execute(spec, context, domain):
             raise TypeError(f"module returned {type(res).__name__}, expected ModuleResult")
         return res, False
     except KeyboardInterrupt:
-        return ModuleResult(spec.title, spec.phase, "failed", error=INTERRUPTED), True
+        log.info("module %s interrupted by user", spec.id)
+        return _failed(spec, INTERRUPTED), True
     except Exception as exc:
-        error = f"{type(exc).__name__}: {exc}"[:300]
-        return ModuleResult(spec.title, spec.phase, "failed", error=error), False
+        error = f"{type(exc).__name__}: {exc}"[:MAX_ERROR_LENGTH]
+        log.warning("module %s failed: %s", spec.id, error,
+                    exc_info=log.isEnabledFor(logging.DEBUG))
+        return _failed(spec, error), False
+
+
+def _finalize(res: ModuleResult, spec, started: str, elapsed: float) -> ModuleResult:
+    """Sella el resultado con los metadatos del spec y los tiempos."""
+    res.name, res.id, res.source, res.kind = spec.title, spec.id, spec.source, spec.kind
+    res.confidence = spec.confidence if res.status == Status.OK else "n/a"
+    res.elapsed = round(elapsed, 2)
+    res.started_at = started
+    return res
 
 
 def run_all(specs, client, domain, on_start=None, on_result=None, module_options=None):
@@ -59,10 +77,7 @@ def run_all(specs, client, domain, on_start=None, on_result=None, module_options
         started = datetime.now(timezone.utc).isoformat(timespec="seconds")
         t0 = time.perf_counter()
         res, interrupted = _execute(spec, context, domain)
-        res.name, res.id, res.source, res.kind = spec.title, spec.id, spec.source, spec.kind
-        res.confidence = spec.confidence if res.status == "ok" else "n/a"
-        res.elapsed = round(time.perf_counter() - t0, 2)
-        res.started_at = started
+        _finalize(res, spec, started, time.perf_counter() - t0)
         results.append(res)
         context.results.append(res)
         _notify(on_result, res)

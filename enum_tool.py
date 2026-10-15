@@ -5,30 +5,48 @@ from collections import Counter
 from dataclasses import dataclass, replace
 from typing import Literal, Optional
 
-import typer
 import requests
+import typer
 from InquirerPy import inquirer
 from rich import box
 from rich.console import Console as RichConsole
-from rich.progress import (BarColumn, Progress, SpinnerColumn, TaskProgressColumn,
-                           TextColumn, TimeElapsedColumn)
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TaskProgressColumn,
+    TextColumn,
+    TimeElapsedColumn,
+)
 from rich.table import Table
 from rich.text import Text
 
 from osint import __version__
-from osint.active.rustscan import (DEFAULT_BATCH, DEFAULT_EXECUTION_TIMEOUT, DEFAULT_PORTS,
-                                   MAX_BATCH, MIN_BATCH)
+from osint.active.rustscan import (
+    DEFAULT_BATCH,
+    DEFAULT_EXECUTION_TIMEOUT,
+    DEFAULT_PORTS,
+    MAX_BATCH,
+    MIN_BATCH,
+)
 from osint.http_client import DEFAULT_UA
 from osint.models import ScanError
 from osint.registry import SPECS, candidates, default_ids, is_available, unavailable
+from osint.report.console import Console as PlainConsole
+from osint.report.header_check import build_header_report
 from osint.report.html_report import write_html
 from osint.report.json_writer import write_json
 from osint.report.serialize import to_dict
-from osint.report.console import Console as PlainConsole
 from osint.runner import INTERRUPTED
 from osint.security_headers import SECURITY_HEADERS, check_security_headers
-from osint.service import (normalize_target, prepare, run_scan, validate_http_options,
-                           validate_module_options)
+from osint.security_headers import report_rows as header_report_rows
+from osint.service import (
+    normalize_target,
+    prepare,
+    run_scan,
+    validate_http_options,
+    validate_module_options,
+)
 from osint.user_agent_capture import UserAgentCapture
 
 app = typer.Typer(
@@ -238,8 +256,12 @@ def _ask_task():
     ).execute()
 
 
-def _run_headers_check(url, no_color=False):
+def _run_headers_check(url, no_color=False, authorised=False, json_report=False,
+                       html_report=False, out="output"):
     ui = PlainConsole(color=False if no_color else None)
+    if not authorised:
+        ui.line("error: confirm you own this target or have written authorisation to test it")
+        return 1
     try:
         response, rows, leaks = check_security_headers(url)
     except (ScanError, requests.exceptions.RequestException, OSError, ValueError) as exc:
@@ -247,13 +269,17 @@ def _run_headers_check(url, no_color=False):
         return 1
     ui.banner("headers-check 1.0", response.url)
     ui.line(f"Security headers report for {response.url}  (HTTP {response.status_code})")
-    ui.table(["HEADER", "STATE", "VALUE"], rows)
-    if leaks:
-        ui.line()
-        ui.line("Information disclosure:")
-        ui.table(["HEADER", "STATE", "VALUE"], leaks)
+    headers, report_rows = header_report_rows(response, rows, leaks)
+    ui.table(headers, report_rows)
     found = sum(row[1] == "present" for row in rows)
-    ui.line(f"Done: {found}/{len(SECURITY_HEADERS)} security headers present")
+    ui.line(f"Coverage: {found}/{len(SECURITY_HEADERS)} security headers observed as present; "
+            "this is not a security score.")
+    data = to_dict(build_header_report(response, rows, leaks))
+    if json_report:
+        ui.line(f"JSON report: {write_json(data, out)}")
+    if html_report:
+        ui.line(f"HTML report: {write_html(data, out)}")
+    ui.line(f"SHA-256: {data['integrity']['sha256']}")
     return 0
 
 
@@ -405,7 +431,20 @@ def scan(
             task = _ask_task()
             if task == "headers":
                 url = inquirer.text(message="URL to check").execute()
-                raise typer.Exit(code=_run_headers_check(url))
+                authorised = inquirer.confirm(
+                    message="Do you own this target or have written authorisation to test it?",
+                    default=False).execute()
+                if not authorised:
+                    raise typer.Exit(code=1)
+                formats = inquirer.checkbox(
+                    message="Select report formats",
+                    choices=[{"name": "JSON", "value": "json"},
+                             {"name": "HTML", "value": "html"}],
+                    instruction="Space toggles; Enter confirms",
+                ).execute()
+                raise typer.Exit(code=_run_headers_check(
+                    url, authorised=True, json_report="json" in formats,
+                    html_report="html" in formats))
             if task == "user-agent":
                 host = inquirer.text(message="Listen address", default="127.0.0.1").execute()
                 port = int(inquirer.number(message="Listen port", default=8080,
@@ -436,10 +475,18 @@ def modules_command():
 
 
 @app.command("headers")
-def headers_command(url: str, no_color: bool = typer.Option(False, "--no-color",
-                                                            help="Disable terminal colors")):
+def headers_command(
+    url: str,
+    authorised: bool = typer.Option(
+        False, "--i-have-permission", help="Confirm explicit authorisation for this active check"),
+    json_report: bool = typer.Option(False, "--json", help="Write JSON report"),
+    html_report: bool = typer.Option(False, "--html", help="Write HTML report"),
+    out: str = typer.Option("output", "--out", help="Report directory"),
+    no_color: bool = typer.Option(False, "--no-color", help="Disable terminal colors"),
+):
     """Check HTTP security headers for a URL."""
-    raise typer.Exit(code=_run_headers_check(url, no_color))
+    raise typer.Exit(code=_run_headers_check(
+        url, no_color, authorised, json_report, html_report, out))
 
 
 @app.command("ua-server")

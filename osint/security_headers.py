@@ -1,7 +1,7 @@
 # osint/security_headers.py
 import re
 from typing import NamedTuple
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 from osint.http_client import HttpClient
 from osint.models import ScanError
@@ -12,6 +12,25 @@ SECURITY_HEADERS = ("Strict-Transport-Security", "Content-Security-Policy",
                     "Referrer-Policy", "Permissions-Policy")
 LEAKY = ("Server", "X-Powered-By", "X-AspNet-Version", "X-AspNetMvc-Version",
          "X-Generator")
+HEADER_GUIDANCE = {
+    "Strict-Transport-Security": (
+        "Only enable after HTTPS works across the intended hosts; consider a long max-age."
+    ),
+    "Content-Security-Policy": (
+        "Define a policy for this application; start with report-only mode to avoid breakage."
+    ),
+    "X-Frame-Options": (
+        "Set DENY or SAMEORIGIN when framing is not required; CSP frame-ancestors is preferred."
+    ),
+    "X-Content-Type-Options": "Set nosniff to prevent MIME-type sniffing.",
+    "Referrer-Policy": (
+        "Choose a policy that limits cross-origin referrer data, such as strict-origin-when-cross-origin."
+    ),
+    "Permissions-Policy": "Disable browser features the application does not need.",
+}
+LEAK_GUIDANCE = (
+    "Consider minimizing unnecessary version details; disclosure alone is not proof of a vulnerability."
+)
 MAX_URL_LENGTH = 2048
 MAX_VALUE_LENGTH = 500
 SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
@@ -81,3 +100,26 @@ def check_security_headers(url, timeout=10, client=None):
     leaks = [HeaderRow(name, "exposed", _display(received[name]))
              for name in LEAKY if name in received]
     return response, rows, leaks
+
+
+def report_rows(response, rows, leaks):
+    """Build consistent, actionable report rows for terminal, web and exports."""
+    headers = ["CHECK", "STATE", "VALUE", "RECOMMENDATION"]
+    parts = urlsplit(response.url)
+    host = parts.hostname or ""
+    if ":" in host:
+        host = f"[{host}]"
+    if parts.port:
+        host = f"{host}:{parts.port}"
+    final_url = urlunsplit((parts.scheme, host, parts.path, "", ""))
+    result = [
+        ["HTTP response", "observed", f"HTTP {response.status_code}", "Review non-2xx responses."],
+        ["Final URL (query omitted)", "observed", final_url,
+         "Confirm redirects remain within the authorised scope."],
+    ]
+    for name, status, value in rows:
+        guidance = (HEADER_GUIDANCE[name] if status == "missing"
+                    else "Review the configured value against application needs.")
+        result.append([name, status, value, guidance])
+    result.extend([[name, status, value, LEAK_GUIDANCE] for name, status, value in leaks])
+    return headers, result

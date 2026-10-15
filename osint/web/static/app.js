@@ -9,6 +9,7 @@ const GOOD = new Set(["open", "present"]);
 const BAD = new Set(["closed", "missing", "failed", "exposed"]);
 const filters = { q: "", phase: "all", status: "all", conf: "all" };
 let report = null, jobId = "";
+let headerReportUrls = [];
 
 const el = (tag, props = {}, ...kids) => {
   const n = document.createElement(tag);
@@ -46,7 +47,8 @@ function card(r, rows) {
   else {
     const head = el("tr", {}, ...r.headers.map((h) => el("th", { text: h })));
     const body = rows.map((row) => el("tr", {}, ...row.map((c) => el("td", {}, cellNode(c)))));
-    box.append(el("table", {}, el("thead", {}, head), el("tbody", {}, ...body)));
+    box.append(el("div", { class: "table-wrap" },
+      el("table", {}, el("thead", {}, head), el("tbody", {}, ...body))));
   }
   return box;
 }
@@ -139,14 +141,29 @@ async function onSubmit(e) {
 
 function renderHeaderCheck(result) {
   const wrap = $("#headers-result");
-  const rows = [...result.rows, ...result.leaks];
-  const table = el("table", {},
-    el("thead", {}, el("tr", {}, ...["HEADER", "STATE", "VALUE"].map((x) => el("th", { text: x })))),
-    el("tbody", {}, ...rows.map((row) =>
+  for (const url of headerReportUrls) URL.revokeObjectURL(url);
+  headerReportUrls = [];
+  const module = result.report.results[0];
+  const table = el("table", { class: "headers-report-table" },
+    el("thead", {}, el("tr", {}, ...module.headers.map((x) => el("th", { text: x })))),
+    el("tbody", {}, ...module.rows.map((row) =>
       el("tr", {}, ...row.map((value) => el("td", { text: value }))))));
-  wrap.replaceChildren(el("p", { class: "meta",
-    text: `HTTP ${result.status} · ${result.url} · ${result.rows.filter((row) => row[1] === "present").length}/${result.rows.length} security headers present` }),
-  table);
+  const jsonUrl = URL.createObjectURL(new Blob(
+    [JSON.stringify(result.report, null, 2)], { type: "application/json" }));
+  const htmlUrl = URL.createObjectURL(new Blob([result.html], { type: "text/html" }));
+  headerReportUrls.push(jsonUrl, htmlUrl);
+  const stem = `${result.report.target}_${result.report.run_id}`;
+  wrap.replaceChildren(
+    el("p", { class: "meta", text: `HTTP ${result.status} · ${result.url} · ` +
+      `${result.rows.filter((row) => row[1] === "present").length}/${result.rows.length} ` +
+      "security headers observed as present; this is not a security score." }),
+    el("p", { class: "mut", text: "Interpret each result in the context of the application. " +
+      "A missing header is not automatically a vulnerability." }),
+    el("div", { class: "actions" },
+      el("a", { class: "btn sec", href: htmlUrl, download: `${stem}.html`, text: "Download HTML" }),
+      el("a", { class: "btn sec", href: jsonUrl, download: `${stem}.json`, text: "Download JSON" })),
+    el("p", { class: "meta", text: `Report SHA-256: ${result.report.integrity.sha256}` }),
+    el("div", { class: "table-wrap" }, table));
   wrap.hidden = false;
 }
 
@@ -160,7 +177,8 @@ async function onHeadersSubmit(e) {
     const result = await api("/api/headers", { method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ url: $("#headers-url").value.trim(),
-        timeout: Number($("#headers-timeout").value) }) });
+        timeout: Number($("#headers-timeout").value),
+        authorised: $("#headers-auth").checked }) });
     renderHeaderCheck(result);
   } catch (ex) {
     error.textContent = ex.message;

@@ -17,6 +17,16 @@ th{color:var(--mut)}.badge{display:inline-block;padding:0 8px;border:1px solid v
 .ok{color:var(--ok)}.bad{color:var(--bad)}.facts{display:grid;grid-template-columns:max-content 1fr;gap:2px 16px;margin:0}
 .facts dd{margin:0}.box{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px 16px}
 code{font:13px ui-monospace,Menlo,Consolas,monospace;word-break:break-all}
+.table-wrap{max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.table-wrap table{min-width:560px}
+@media (max-width:600px){
+body{padding:16px}
+h1{font-size:1.3rem;overflow-wrap:anywhere}
+.facts{grid-template-columns:1fr;gap:0}
+.facts dt{margin-top:8px}
+.facts dd{overflow-wrap:anywhere}
+.box{padding:12px}
+}
 @media print{body{max-width:none;padding:0}a{color:inherit;text-decoration:none}}
 """
 GOOD, BAD = {"open", "present"}, {"closed", "missing", "failed", "exposed"}
@@ -45,7 +55,8 @@ def cell(value):
 def table(headers, rows):
     head = "".join(f"<th>{esc(h)}</th>" for h in headers)
     body = "".join("<tr>" + "".join(f"<td>{cell(c)}</td>" for c in row) + "</tr>" for row in rows)
-    return f"<table><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>"
+    return (f'<div class="table-wrap"><table><thead><tr>{head}</tr></thead>'
+            f"<tbody>{body}</tbody></table></div>")
 
 
 def key_facts(results):
@@ -99,11 +110,16 @@ def render_html(d):
              ("Environment", f'{d["environment"]["os"]}, Python {d["environment"]["python"]}'),
              ("Run window (UTC)", f'{d["started_at"]} → {d["finished_at"]} ({d["duration"]}s)')]
     limits = "".join(f"<li>{esc(t)}</li>" for t in LIMITS)
+    if "security_headers" in d["modules_selected"]:
+        limits += ("<li>Security-header presence is not a security score; "
+                   "applicability depends on the application and deployment.</li>")
     fails = "".join(f"<li>{esc(r['name'])}: {esc(r['error'])}</li>" for r in failed)
+    title = ("HTTP Security Header Check Report" if d["mode"] == "active web configuration"
+             else "OSINT Enumeration Report")
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>OSINT report: {esc(d["target"])}</title><style>{CSS}</style></head><body>
-<h1>OSINT Enumeration Report: {esc(d["target"])}</h1>
+<title>{title}: {esc(d["target"])}</title><style>{CSS}</style></head><body>
+<h1>{title}: {esc(d["target"])}</h1>
 <p class="meta">Run {esc(d["run_id"])} · {esc(d["finished_at"])} UTC · {esc(d["tool"])} {esc(d["version"])}</p>
 <h2>1. Executive summary</h2>
 <div class="box"><p>{ok} of {len(results)} modules completed for <strong>{esc(d["target"])}</strong>

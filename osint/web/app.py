@@ -10,17 +10,30 @@ from pathlib import Path
 import requests
 
 from osint import __version__
-from osint.active.rustscan import (DEFAULT_BATCH, DEFAULT_EXECUTION_TIMEOUT, DEFAULT_PORTS,
-                                   MAX_BATCH, MAX_EXECUTION_TIMEOUT, MIN_BATCH,
-                                   MIN_EXECUTION_TIMEOUT)
+from osint.active.rustscan import (
+    DEFAULT_BATCH,
+    DEFAULT_EXECUTION_TIMEOUT,
+    DEFAULT_PORTS,
+    MAX_BATCH,
+    MAX_EXECUTION_TIMEOUT,
+    MIN_BATCH,
+    MIN_EXECUTION_TIMEOUT,
+)
 from osint.http_client import DEFAULT_UA
 from osint.models import ScanError
 from osint.registry import SPECS, is_available
+from osint.report.header_check import build_header_report
 from osint.report.html_report import render_html
 from osint.report.serialize import to_dict
 from osint.security_headers import check_security_headers
-from osint.service import (MAX_TIMEOUT, MIN_TIMEOUT, prepare, run_scan,
-                           validate_http_options, validate_module_options)
+from osint.service import (
+    MAX_TIMEOUT,
+    MIN_TIMEOUT,
+    prepare,
+    run_scan,
+    validate_http_options,
+    validate_module_options,
+)
 from osint.user_agent_capture import UserAgentCapture
 
 log = logging.getLogger(__name__)
@@ -282,14 +295,20 @@ class Handler(BaseHTTPRequestHandler):
         return 202, job.view()
 
     def _post_headers(self, body):
+        if body.get("authorised") is not True:
+            raise RequestError(
+                400, "confirm you own this target or have written authorisation to test it")
         try:
             response, rows, leaks = check_security_headers(
                 body.get("url"), body.get("timeout", 10))
         except requests.exceptions.RequestException as exc:
             log.warning("security-header request failed: %s", exc)
             raise RequestError(502, f"{type(exc).__name__}: {str(exc)[:200]}") from exc
+        report = to_dict(build_header_report(
+            response, rows, leaks, body.get("timeout", 10)))
         return 200, {"url": response.url, "status": response.status_code,
-                     "rows": rows, "leaks": leaks}
+                     "rows": rows, "leaks": leaks, "report": report,
+                     "html": render_html(report)}
 
     def _post_capture_start(self, body):
         host, port = body.get("host", "127.0.0.1"), body.get("port", 8080)

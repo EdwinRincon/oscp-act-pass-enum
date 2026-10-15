@@ -1,4 +1,6 @@
 # osint/registry.py
+from __future__ import annotations
+
 import shutil
 from dataclasses import dataclass
 from typing import Callable
@@ -6,7 +8,9 @@ from typing import Callable
 from osint.active.dns_records import DnsRecords
 from osint.active.fingerprint import Fingerprint
 from osint.active.rustscan import RustScan
+from osint.active.security_headers import SecurityHeaders
 from osint.active.well_known import WellKnown
+from osint.base import Module, ScanContext
 from osint.models import ScanError
 from osint.passive.crtsh import CrtSh
 from osint.passive.dork_links import DorkLinks
@@ -25,10 +29,10 @@ class ModuleSpec:
     source: str
     kind: str
     confidence: str
-    factory: Callable
+    factory: Callable[[ScanContext], Module]
     executable: str = ""
     opt_in: bool = False     # solo se ejecuta con --only (intrusivo)
-    requires: tuple = ()     # ids de módulos cuyo resultado necesita
+    requires: tuple[str, ...] = ()  # ids de módulos cuyo resultado necesita
 
 
 # El orden importa: los módulos con `requires` van después de sus dependencias.
@@ -47,6 +51,9 @@ SPECS = (
                "direct HTTP(S) request to target", "finding", "High", WellKnown),
     ModuleSpec("fingerprint", "Technology fingerprint", "active",
                "direct HTTP(S) request to target", "finding", "High", Fingerprint),
+    ModuleSpec("security_headers", "HTTP security headers", "active",
+               "direct HTTP(S) request to target", "finding", "High",
+               SecurityHeaders, opt_in=True),
     ModuleSpec("rustscan", "RustScan port discovery", "active",
                "external port scanner; selected ports only", "finding", "High",
                RustScan, executable="rustscan", opt_in=True),
@@ -55,6 +62,26 @@ SPECS = (
                "finding", "Moderate", SearchSploit,
                executable="searchsploit", requires=("fingerprint",)),
 )
+
+
+def validate_specs(specs) -> None:
+    """Falla pronto ante ids duplicados, dependencias desconocidas o mal ordenadas."""
+    ids = [s.id for s in specs]
+    duplicated = sorted({i for i in ids if ids.count(i) > 1})
+    if duplicated:
+        raise ValueError(f"duplicate module id(s): {', '.join(duplicated)}")
+    seen: set[str] = set()
+    known = set(ids)
+    for spec in specs:
+        unknown = set(spec.requires) - known
+        if unknown:
+            raise ValueError(f"{spec.id} requires unknown module(s): {', '.join(sorted(unknown))}")
+        if not set(spec.requires) <= seen:
+            raise ValueError(f"{spec.id} must be listed after its dependencies")
+        seen.add(spec.id)
+
+
+validate_specs(SPECS)
 
 
 def is_available(spec):

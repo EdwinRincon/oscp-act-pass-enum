@@ -78,12 +78,19 @@ Los informes registran los nombres de las cabeceras personalizadas, pero no sus 
 
 - **SearchSploit:** si está instalado, en escaneos activos busca referencias a partir de las versiones detectadas. No ejecuta exploits.
 
+El módulo **HTTP security headers** también es opt-in y activo: envía una petición HTTP al objetivo y requiere autorización. Puede incluirse en un informe combinado sin ejecutarse por defecto:
+
+```bash
+python enum_tool.py -d example.com --only whois,dns,security_headers \
+  --i-have-permission --html --json
+```
+
 ### Cabeceras de seguridad
 
 ```bash
-python headers_check.py https://example.com
+python headers_check.py https://example.com --i-have-permission --html --json
 # También está disponible como comando:
-python enum_tool.py headers https://example.com
+python enum_tool.py headers https://example.com --i-have-permission --html --json
 ```
 
 ### Captura de User-Agent

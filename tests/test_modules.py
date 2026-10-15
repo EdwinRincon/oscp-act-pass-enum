@@ -12,27 +12,41 @@ from unittest.mock import patch
 
 import dns.resolver
 import requests
+from typer.testing import CliRunner
 
 from enum_tool import ScanArgs, app, run_wizard
 from osint.active.dns_records import DnsRecords
-from osint.active.rustscan import (DEFAULT_BATCH, DEFAULT_EXECUTION_TIMEOUT,
-                                   DEFAULT_PORTS, RustScan, normalize_ports,
-                                   parse_open_ports, validate_target)
+from osint.active.rustscan import (
+    DEFAULT_BATCH,
+    DEFAULT_EXECUTION_TIMEOUT,
+    DEFAULT_PORTS,
+    RustScan,
+    normalize_ports,
+    parse_open_ports,
+    validate_target,
+)
 from osint.active.well_known import WellKnown
 from osint.http_client import DEFAULT_UA, HttpClient
 from osint.models import ModuleResult, Report, ScanError
 from osint.passive.crtsh import CrtSh, belongs_to
 from osint.passive.searchsploit import SearchSploit, inferred_queries
-from osint.report.console import Console
-from osint.report.serialize import to_dict, verify
 from osint.registry import ModuleSpec, select
+from osint.report.console import Console
+from osint.report.header_check import build_header_report
+from osint.report.html_report import render_html, write_html
+from osint.report.json_writer import write_json
+from osint.report.serialize import to_dict, verify
 from osint.runner import INTERRUPTED, order_by_dependencies, run_all
-from osint.service import (normalize_target, prepare, run_scan,
-                           validate_http_options, validate_module_options)
 from osint.security_headers import check_security_headers, check_url
+from osint.service import (
+    normalize_target,
+    prepare,
+    run_scan,
+    validate_http_options,
+    validate_module_options,
+)
 from osint.user_agent_capture import UserAgentCapture
 from osint.web.app import make_server
-from typer.testing import CliRunner
 
 
 class FakeResponse:
@@ -121,6 +135,30 @@ class UtilityToolTests(unittest.TestCase):
         self.assertEqual(rows[0], ("Strict-Transport-Security", "present", "max-age=1"))
         self.assertEqual(leaks, [("Server", "exposed", "example")])
 
+    def test_header_report_has_actionable_advice_and_integrity(self):
+        response = FakeResponse()
+        response.url = "https://example.com/login?token=secret"
+        response.headers = {}
+        _, rows, leaks = check_security_headers("example.com", client=type(
+            "Client", (), {"get": lambda self, _url: response})())
+        data = to_dict(build_header_report(response, rows, leaks))
+        result = data["results"][0]
+        missing = next(row for row in result["rows"]
+                       if row[0] == "Strict-Transport-Security")
+        self.assertEqual(missing[1], "missing")
+        self.assertIn("HTTPS", missing[3])
+        self.assertTrue(verify(data))
+        self.assertEqual(data["target"], "example.com")
+        self.assertNotIn("token=secret", str(data))
+        html = render_html(data)
+        self.assertIn("HTTP Security Header Check Report", html)
+        self.assertIn('class="table-wrap"', html)
+        self.assertIn("@media (max-width:600px)", html)
+        self.assertNotIn("token=secret", html)
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertTrue(write_json(data, directory).is_file())
+            self.assertTrue(write_html(data, directory).is_file())
+
     def test_user_agent_capture_logs_requests_and_stops(self):
         with tempfile.TemporaryDirectory() as directory:
             log_file = Path(directory) / "agents.log"
@@ -147,12 +185,14 @@ class UtilityToolTests(unittest.TestCase):
             try:
                 response = requests.post(
                     f"http://127.0.0.1:{port}/api/headers",
-                    json={"url": "example.com"}, timeout=2)
+                    json={"url": "example.com", "authorised": True}, timeout=2)
             finally:
                 server.shutdown()
                 server.server_close()
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["rows"], [["X", "present", "yes"]])
+        self.assertIn("security_headers", response.json()["report"]["modules_selected"])
+        self.assertIn("HTTP security headers", response.json()["html"])
 
     def test_web_user_agent_api_starts_and_stops_loopback_server(self):
         server = make_server("127.0.0.1", 0)
@@ -188,18 +228,24 @@ class UtilityToolTests(unittest.TestCase):
 
     @patch("enum_tool._run_headers_check", return_value=0)
     def test_headers_command_is_available_from_terminal(self, check):
-        result = CliRunner().invoke(app, ["headers", "https://example.com"])
+        result = CliRunner().invoke(
+            app, ["headers", "https://example.com", "--i-have-permission"])
         self.assertEqual(result.exit_code, 0, result.stdout)
-        check.assert_called_once_with("https://example.com", False)
+        check.assert_called_once_with("https://example.com", False, True, False, False, "output")
 
     @patch("enum_tool._run_headers_check", return_value=0)
+    @patch("enum_tool.inquirer.checkbox")
+    @patch("enum_tool.inquirer.confirm")
     @patch("enum_tool.inquirer.text")
     @patch("enum_tool._ask_task", return_value="headers")
-    def test_interactive_menu_exposes_header_check(self, _task, text, check):
+    def test_interactive_menu_exposes_header_check(self, _task, text, confirm, checkbox, check):
         text.return_value.execute.return_value = "https://example.com"
+        confirm.return_value.execute.return_value = True
+        checkbox.return_value.execute.return_value = []
         result = CliRunner().invoke(app, ["--interactive"])
         self.assertEqual(result.exit_code, 0, result.stdout)
-        check.assert_called_once_with("https://example.com")
+        check.assert_called_once_with(
+            "https://example.com", authorised=True, json_report=False, html_report=False)
 
 
 class IntegrityTests(unittest.TestCase):

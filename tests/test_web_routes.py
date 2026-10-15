@@ -31,16 +31,24 @@ class WebRouteTests(unittest.TestCase):
     def test_network_failures_in_header_check_return_502(self):
         error = requests.exceptions.ConnectionError("boom")
         with patch("osint.web.app.check_security_headers", side_effect=error):
-            response = self.post("/api/headers", json={"url": "example.com"})
+            response = self.post("/api/headers", json={
+                "url": "example.com", "authorised": True})
         self.assertEqual(response.status_code, 502)
         self.assertIn("ConnectionError", response.json()["error"])
 
     def test_unexpected_errors_return_json_500(self):
         with patch("osint.web.app.check_security_headers", side_effect=KeyError("x")), \
                 self.assertLogs("osint.web.app", level="ERROR"):
-            response = self.post("/api/headers", json={"url": "example.com"})
+            response = self.post("/api/headers", json={
+                "url": "example.com", "authorised": True})
         self.assertEqual(response.status_code, 500)
         self.assertEqual(response.json()["error"], "internal error")
+
+    def test_header_check_requires_explicit_authorisation(self):
+        with patch("osint.web.app.check_security_headers") as checker:
+            response = self.post("/api/headers", json={"url": "example.com"})
+        self.assertEqual(response.status_code, 400)
+        checker.assert_not_called()
 
     def test_overlong_domain_is_rejected_instead_of_truncated(self):
         response = self.post("/api/scan", json={"domain": "a" * 254, "modules": ["dorks"]})

@@ -61,6 +61,9 @@
       <input id="headers-url" placeholder="https://example.com" autocomplete="url" required>
       <label for="headers-timeout">Request timeout (seconds)</label>
       <input id="headers-timeout" type="number" min="3" max="30" value="10">
+      <label class="check auth"><input type="checkbox" id="headers-auth" required>
+        <span>I own this target or have written authorisation to test it.</span></label>
+      <p class="mut">This sends an active HTTP request to the URL. Header presence is not a security score.</p>
       <p id="headers-error" class="bad" role="alert"></p>
       <button id="headers-run" type="submit">Check headers</button>
     </form>
