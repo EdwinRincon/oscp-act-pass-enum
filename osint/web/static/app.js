@@ -137,6 +137,77 @@ async function onSubmit(e) {
   }
 }
 
+function renderHeaderCheck(result) {
+  const wrap = $("#headers-result");
+  const rows = [...result.rows, ...result.leaks];
+  const table = el("table", {},
+    el("thead", {}, el("tr", {}, ...["HEADER", "STATE", "VALUE"].map((x) => el("th", { text: x })))),
+    el("tbody", {}, ...rows.map((row) =>
+      el("tr", {}, ...row.map((value) => el("td", { text: value }))))));
+  wrap.replaceChildren(el("p", { class: "meta",
+    text: `HTTP ${result.status} · ${result.url} · ${result.rows.filter((row) => row[1] === "present").length}/${result.rows.length} security headers present` }),
+  table);
+  wrap.hidden = false;
+}
+
+async function onHeadersSubmit(e) {
+  e.preventDefault();
+  const error = $("#headers-error");
+  error.textContent = "";
+  $("#headers-run").disabled = true;
+  $("#headers-result").hidden = true;
+  try {
+    const result = await api("/api/headers", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: $("#headers-url").value.trim(),
+        timeout: Number($("#headers-timeout").value) }) });
+    renderHeaderCheck(result);
+  } catch (ex) {
+    error.textContent = ex.message;
+  } finally {
+    $("#headers-run").disabled = false;
+  }
+}
+
+function renderUserAgentStatus(state) {
+  $("#ua-start").disabled = state.running;
+  $("#ua-port").disabled = state.running;
+  $("#ua-stop").disabled = !state.running;
+  const status = $("#ua-status");
+  status.replaceChildren();
+  if (state.running && state.address) {
+    const url = `http://127.0.0.1:${state.address.port}/`;
+    status.append(el("p", { text: "Listening at " }), el("a", { href: url, text: url }),
+      el("p", { class: "meta", text: `Log file: ${state.log_file}` }));
+  } else {
+    status.append(el("p", { text: "Server stopped." }));
+  }
+  $("#ua-events").replaceChildren(...state.events.map((event) =>
+    el("li", { text: `${event.time}  ${event.ip}  ${event.method} ${event.path}  ${event.user_agent}` })));
+}
+
+async function refreshUserAgentStatus() {
+  const error = $("#ua-error");
+  try {
+    renderUserAgentStatus(await api("/api/user-agent"));
+    error.textContent = "";
+  } catch (ex) {
+    error.textContent = ex.message;
+  }
+}
+
+async function onUserAgentAction(path, body = {}) {
+  const error = $("#ua-error");
+  error.textContent = "";
+  try {
+    await api(path, { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body) });
+    await refreshUserAgentStatus();
+  } catch (ex) {
+    error.textContent = ex.message;
+  }
+}
+
 async function init() {
   const info = await api("/api/modules");
   const http = info.http;
@@ -194,6 +265,14 @@ async function init() {
   });
 
   $("#scan-form").addEventListener("submit", onSubmit);
+  $("#headers-timeout").min = http.min_timeout;
+  $("#headers-timeout").max = http.max_timeout;
+  $("#headers-form").addEventListener("submit", onHeadersSubmit);
+  $("#ua-start").addEventListener("click", () =>
+    onUserAgentAction("/api/user-agent/start", { port: Number($("#ua-port").value) }));
+  $("#ua-stop").addEventListener("click", () => onUserAgentAction("/api/user-agent/stop"));
+  refreshUserAgentStatus();
+  window.setInterval(refreshUserAgentStatus, 2000);
   for (const [id, key] of [["q", "q"], ["f-phase", "phase"], ["f-status", "status"], ["f-conf", "conf"]]) {
     $(`#${id}`).addEventListener("input", (e) => { filters[key] = e.target.value; if (report) renderResults(); });
   }

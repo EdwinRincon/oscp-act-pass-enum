@@ -1,10 +1,12 @@
 # enum_tool.py
 import sys
+import time
 from collections import Counter
 from dataclasses import dataclass, replace
 from typing import Literal, Optional
 
 import typer
+import requests
 from InquirerPy import inquirer
 from rich import box
 from rich.console import Console as RichConsole
@@ -22,9 +24,12 @@ from osint.registry import SPECS, candidates, default_ids, is_available, unavail
 from osint.report.html_report import write_html
 from osint.report.json_writer import write_json
 from osint.report.serialize import to_dict
+from osint.report.console import Console as PlainConsole
 from osint.runner import INTERRUPTED
+from osint.security_headers import SECURITY_HEADERS, check_security_headers
 from osint.service import (normalize_target, prepare, run_scan, validate_http_options,
                            validate_module_options)
+from osint.user_agent_capture import UserAgentCapture
 
 app = typer.Typer(
     name="osint-enum",
@@ -221,6 +226,59 @@ def run_wizard(args):
     return _ask_formats(args)
 
 
+def _ask_task():
+    return inquirer.select(
+        message="Choose a tool",
+        choices=[
+            {"name": "Domain enumeration scan", "value": "scan"},
+            {"name": "HTTP security headers check", "value": "headers"},
+            {"name": "User-Agent capture server", "value": "user-agent"},
+        ],
+        default="scan", pointer="»",
+    ).execute()
+
+
+def _run_headers_check(url, no_color=False):
+    ui = PlainConsole(color=False if no_color else None)
+    try:
+        response, rows, leaks = check_security_headers(url)
+    except (ScanError, requests.exceptions.RequestException, OSError, ValueError) as exc:
+        ui.line(f"error: {type(exc).__name__}: {exc}")
+        return 1
+    ui.banner("headers-check 1.0", response.url)
+    ui.line(f"Security headers report for {response.url}  (HTTP {response.status_code})")
+    ui.table(["HEADER", "STATE", "VALUE"], rows)
+    if leaks:
+        ui.line()
+        ui.line("Information disclosure:")
+        ui.table(["HEADER", "STATE", "VALUE"], leaks)
+    found = sum(row[1] == "present" for row in rows)
+    ui.line(f"Done: {found}/{len(SECURITY_HEADERS)} security headers present")
+    return 0
+
+
+def _run_user_agent_server(host="127.0.0.1", port=8080):
+    ui = PlainConsole()
+    capture = UserAgentCapture(console=ui)
+    try:
+        address = capture.start(host, port)
+    except OSError as exc:
+        ui.line(f"error: {type(exc).__name__}: {exc}")
+        return 1
+    ui.banner("ua-server 1.0", f"{address['host']}:{address['port']}")
+    ui.line("Listening. Ctrl+C to stop.")
+    ui.line("TIME      CLIENT           REQ  PATH                  USER-AGENT")
+    ui.line(f"Log: {capture.log_file}")
+    try:
+        while capture.running:
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        ui.line("\nStopped.")
+    finally:
+        capture.stop()
+    return 0
+
+
 # ---------- ejecución ----------
 
 def _make_progress(console, quiet):
@@ -344,6 +402,15 @@ def scan(
 
     if interactive or (domain is None and sys.stdin.isatty()):
         try:
+            task = _ask_task()
+            if task == "headers":
+                url = inquirer.text(message="URL to check").execute()
+                raise typer.Exit(code=_run_headers_check(url))
+            if task == "user-agent":
+                host = inquirer.text(message="Listen address", default="127.0.0.1").execute()
+                port = int(inquirer.number(message="Listen port", default=8080,
+                                           min_allowed=1, max_allowed=65535).execute())
+                raise typer.Exit(code=_run_user_agent_server(host, port))
             args = run_wizard(args)
         except (KeyboardInterrupt, EOFError):
             console.print("\n[yellow]Scan setup cancelled.[/yellow]")
@@ -366,6 +433,21 @@ def scan(
 def modules_command():
     """List modules and whether optional external tools are available."""
     show_modules(RichConsole())
+
+
+@app.command("headers")
+def headers_command(url: str, no_color: bool = typer.Option(False, "--no-color",
+                                                            help="Disable terminal colors")):
+    """Check HTTP security headers for a URL."""
+    raise typer.Exit(code=_run_headers_check(url, no_color))
+
+
+@app.command("ua-server")
+def user_agent_server_command(host: str = "127.0.0.1", port: int = 8080):
+    """Start a local server that displays and logs received User-Agent headers."""
+    if not 1 <= port <= 65535:
+        raise typer.BadParameter("port must be between 1 and 65535")
+    raise typer.Exit(code=_run_user_agent_server(host, port))
 
 
 def main(argv=None):

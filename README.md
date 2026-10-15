@@ -48,7 +48,7 @@ python enum_tool.py -d example.com --exclude searchsploit
 python enum_tool.py --interactive
 ```
 
-Guía la selección de perfil, módulos e informes. En una terminal interactiva, `python enum_tool.py` sin argumentos también lo abre.
+Permite elegir entre enumerar un dominio, revisar cabeceras HTTP o iniciar el servidor de captura de User-Agent. En una terminal interactiva, `python enum_tool.py` sin argumentos también abre el menú.
 
 ![Enumeración desde la terminal interactiva](docs/images/terminal-interactive-result.png)
 
@@ -81,24 +81,28 @@ Los informes registran los nombres de las cabeceras personalizadas, pero no sus 
 ### Cabeceras de seguridad
 
 ```bash
-python headers_check.py [https://example.com](https://example.com)
+python headers_check.py https://example.com
+# También está disponible como comando:
+python enum_tool.py headers https://example.com
 ```
 
 ### Captura de User-Agent
 
-En una terminal, inicia el servidor:
+El modo terminal ofrece el comando directo y el asistente interactivo:
 
 ```bash
 python ua_server.py --port 8080
+# O bien:
+python enum_tool.py ua-server --port 8080
 ```
 
-En otra, haz una petición:
+El servidor escucha solo en `127.0.0.1` por defecto. En otra terminal, genera una petición:
 
 ```bash
 python headers_check.py http://127.0.0.1:8080
 ```
 
-El `User-Agent` se muestra en la primera terminal y se guarda en `output/user_agents.log`. Detén el servidor con `Ctrl+C`.
+El `User-Agent` se muestra en la terminal del servidor y se guarda en `output/user_agents.log`. Detén el servidor con `Ctrl+C`. La interfaz web también permite iniciar y detener el capturador, consultar las solicitudes recibidas y ejecutar el comprobador de cabeceras.
 
 ### Interfaz web
 
@@ -107,5 +111,6 @@ python web_server.py
 ```
 
 Abre <http://127.0.0.1:8000>. No tiene autenticación: no la expongas a una red pública.
+Desde la web están disponibles la enumeración, la revisión de cabeceras y la captura local de User-Agent.
 
 ![Interfaz web con un resultado real](docs/images/web-result.png)

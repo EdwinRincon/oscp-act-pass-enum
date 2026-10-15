@@ -2,13 +2,11 @@
 import argparse
 import sys
 
-from osint.http_client import HttpClient
-from osint.report.console import Console
+import requests
 
-SECURITY_HEADERS = ("Strict-Transport-Security", "Content-Security-Policy",
-                    "X-Frame-Options", "X-Content-Type-Options",
-                    "Referrer-Policy", "Permissions-Policy")
-LEAKY = ("Server", "X-Powered-By")
+from osint.models import ScanError
+from osint.report.console import Console
+from osint.security_headers import SECURITY_HEADERS, check_security_headers
 
 
 def main():
@@ -16,21 +14,17 @@ def main():
     p.add_argument("url")
     p.add_argument("--no-color", action="store_true")
     args = p.parse_args()
-    url = args.url if "://" in args.url else f"https://{args.url}"
     ui = Console(color=False if args.no_color else None)
-
-    ui.banner("headers-check 1.0", url)
+    ui.banner("headers-check 1.0", args.url)
     try:
-        r = HttpClient().get(url)
-    except Exception as exc:
+        r, rows, leaks = check_security_headers(args.url)
+    except (ScanError, requests.exceptions.RequestException, OSError, TimeoutError,
+            ValueError) as exc:
         ui.line(f"error: {type(exc).__name__}: {exc}"); return 1
 
     ui.line(f"Security headers report for {r.url}  (HTTP {r.status_code})")
-    rows = [(h, "present" if h in r.headers else "missing", r.headers.get(h, "-"))
-            for h in SECURITY_HEADERS]
     ui.table(["HEADER", "STATE", "VALUE"], rows)
     ui.line()
-    leaks = [(h, "exposed", r.headers[h]) for h in LEAKY if h in r.headers]
     if leaks:
         ui.line("Information disclosure:")
         ui.table(["HEADER", "STATE", "VALUE"], leaks)

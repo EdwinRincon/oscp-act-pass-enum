@@ -54,6 +54,34 @@
     </form>
   </section>
 
+  <section class="panel" aria-labelledby="headers-h">
+    <h2 id="headers-h">HTTP security headers</h2>
+    <form id="headers-form">
+      <label for="headers-url">URL or domain</label>
+      <input id="headers-url" placeholder="https://example.com" autocomplete="url" required>
+      <label for="headers-timeout">Request timeout (seconds)</label>
+      <input id="headers-timeout" type="number" min="3" max="30" value="10">
+      <p id="headers-error" class="bad" role="alert"></p>
+      <button id="headers-run" type="submit">Check headers</button>
+    </form>
+    <div id="headers-result" hidden></div>
+  </section>
+
+  <section class="panel" aria-labelledby="ua-h">
+    <h2 id="ua-h">User-Agent capture server</h2>
+    <p class="mut">Listens on this computer only at <code>127.0.0.1</code>. Requests made to
+      the shown URL are recorded in <code>output/user_agents.log</code>.</p>
+    <label for="ua-port">Listen port</label>
+    <input id="ua-port" type="number" min="1" max="65535" value="8080">
+    <div class="actions">
+      <button id="ua-start" type="button">Start capture server</button>
+      <button id="ua-stop" class="sec" type="button" disabled>Stop server</button>
+    </div>
+    <p id="ua-error" class="bad" role="alert"></p>
+    <div id="ua-status" class="mut" aria-live="polite"></div>
+    <ol id="ua-events" class="plain"></ol>
+  </section>
+
   <section id="progress" class="panel" hidden aria-live="polite">
     <h2>Progress</h2>
     <progress id="bar" value="0" max="1"></progress>

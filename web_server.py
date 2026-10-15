@@ -26,6 +26,9 @@ def main():
         server.serve_forever()
     except KeyboardInterrupt:
         ui.line("\nStopped.")
+    finally:
+        server.user_agent_capture.stop()
+        server.server_close()
     return 0
 
 
