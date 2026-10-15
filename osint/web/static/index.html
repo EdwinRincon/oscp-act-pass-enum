@@ -8,14 +8,23 @@
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
+<a class="skip-link" href="#main-content">Skip to main content</a>
 <header><h1>osint-enum <span class="mut" id="ver"></span></h1>
-  <p class="mut">Passive and active enumeration with optional port scanning and local exploit-reference lookup.</p></header>
+  <p class="mut">Passive and active enumeration with optional port scanning and local exploit-reference lookup.</p>
+  <p id="app-error" class="bad" role="alert" hidden></p></header>
+<main id="main-content">
+<section id="progress" class="panel scan-progress" hidden aria-labelledby="progress-h">
+  <h2 id="progress-h">Scan progress</h2>
+  <progress id="bar" value="0" max="1" aria-label="Scan progress"></progress>
+  <p id="status" class="mut" role="status" aria-live="polite"></p>
+  <ul id="done" class="plain"></ul>
+</section>
 <main>
   <section class="panel" aria-labelledby="scan-h">
     <h2 id="scan-h">Scan</h2>
     <form id="scan-form" novalidate>
       <label for="domain">Target domain or IPv4 address</label>
-      <input id="domain" placeholder="example.com" autocomplete="off" spellcheck="false" required>
+      <input id="domain" type="text" placeholder="example.com" autocomplete="off" spellcheck="false" required>
       <fieldset id="modules">
         <legend>Modules</legend>
         <p class="mut">Passive: no requests are sent to the target; sources may be public or local.</p>
@@ -40,7 +49,7 @@
         <label for="rustscan-timeout">RustScan execution limit (seconds)</label>
         <input id="rustscan-timeout" type="number" min="10" max="300" value="60">
         <label for="rustscan-batch">RustScan batch size (concurrent connections)</label>
-        <input id="rustscan-batch" type="number" min="10" max="4500" step="10" value="500">
+        <input id="rustscan-batch" type="number" min="10" max="4500" step="10" value="10">
         <p class="mut">SearchSploit searches the local Exploit-DB database and displays
           references automatically when enumeration detects software banners. It does not run
           exploits. RustScan performs active port scanning and requires explicit authorization.</p>
@@ -50,7 +59,7 @@
         <input id="note" maxlength="300" autocomplete="off">
       </details>
       <p id="form-err" class="bad" role="alert"></p>
-      <button id="run" type="submit">Run scan</button>
+      <button id="run" type="submit" disabled>Loading scan options…</button>
     </form>
   </section>
 
@@ -65,7 +74,7 @@
         <span>I own this target or have written authorisation to test it.</span></label>
       <p class="mut">This sends an active HTTP request to the URL. Header presence is not a security score.</p>
       <p id="headers-error" class="bad" role="alert"></p>
-      <button id="headers-run" type="submit">Check headers</button>
+      <button id="headers-run" type="submit" disabled>Check headers</button>
     </form>
     <div id="headers-result" hidden></div>
   </section>
@@ -77,19 +86,12 @@
     <label for="ua-port">Listen port</label>
     <input id="ua-port" type="number" min="1" max="65535" value="8080">
     <div class="actions">
-      <button id="ua-start" type="button">Start capture server</button>
+      <button id="ua-start" type="button" disabled>Start capture server</button>
       <button id="ua-stop" class="sec" type="button" disabled>Stop server</button>
     </div>
     <p id="ua-error" class="bad" role="alert"></p>
     <div id="ua-status" class="mut" aria-live="polite"></div>
     <ol id="ua-events" class="plain"></ol>
-  </section>
-
-  <section id="progress" class="panel" hidden aria-live="polite">
-    <h2>Progress</h2>
-    <progress id="bar" value="0" max="1"></progress>
-    <p id="status" class="mut"></p>
-    <ul id="done" class="plain"></ul>
   </section>
 
   <section id="results" hidden aria-labelledby="res-h">

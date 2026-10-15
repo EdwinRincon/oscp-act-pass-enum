@@ -10,6 +10,7 @@ const BAD = new Set(["closed", "missing", "failed", "exposed"]);
 const filters = { q: "", phase: "all", status: "all", conf: "all" };
 let report = null, jobId = "";
 let headerReportUrls = [];
+let uaActionPending = false;
 
 const el = (tag, props = {}, ...kids) => {
   const n = document.createElement(tag);
@@ -90,14 +91,29 @@ function renderReport() {
 }
 
 function renderProgress(j) {
+  const progress = $("#progress");
+  progress.classList.remove("is-running", "is-done", "is-failed");
+  if (j.status === "running") progress.classList.add("is-running");
+  progress.setAttribute("aria-busy", String(j.status === "running"));
   $("#bar").max = j.total;
   $("#bar").value = j.progress.length;
   $("#status").textContent = j.status === "running"
-    ? `Running: ${j.current} (${j.progress.length}/${j.total})` : `Finished (${j.progress.length}/${j.total})`;
+    ? `Running: ${j.current} (${j.progress.length}/${j.total})`
+    : `Scan complete (${j.progress.length}/${j.total} modules).`;
   $("#done").replaceChildren(...j.progress.map((p) => {
     const symbol = p.status === "ok" ? "●" : p.status === "skipped" ? "○" : "✖";
     return el("li", { class: p.status, text: `${symbol} ${p.name} (${p.elapsed}s)` });
   }));
+  if (j.status === "done") {
+    const failed = j.progress.filter((p) => p.status === "failed").length;
+    if (failed) {
+      $("#status").textContent += ` ${failed} ${failed === 1 ? "module" : "modules"} failed; see the report below.`;
+      progress.classList.add("is-failed");
+    } else {
+      progress.classList.add("is-done");
+    }
+  }
+  $("#status").classList.toggle("bad", j.status === "done" && progress.classList.contains("is-failed"));
 }
 
 async function poll(id) {
@@ -113,14 +129,25 @@ async function poll(id) {
 async function onSubmit(e) {
   e.preventDefault();
   const err = $("#form-err");
+  const run = $("#run");
+  if (run.disabled) return;
   err.textContent = "";
   const domain = $("#domain").value.trim().toLowerCase();
   const chosen = [...document.querySelectorAll("#modules input[data-id]:checked")].map((b) => b.dataset.id);
   if (!validTarget(domain)) { err.textContent = "Enter a valid domain or IPv4 address."; return; }
   if (!chosen.length) { err.textContent = "Select at least one module."; return; }
-  $("#run").disabled = true;
+  run.disabled = true;
+  run.textContent = "Scan starting…";
   $("#results").hidden = true;
-  $("#progress").hidden = false;
+  const progress = $("#progress");
+  progress.hidden = false;
+  progress.className = "panel scan-progress is-running";
+  progress.setAttribute("aria-busy", "true");
+  $("#status").className = "mut";
+  $("#status").textContent = "Starting scan…";
+  $("#bar").value = 0;
+  $("#bar").max = chosen.length;
+  $("#done").replaceChildren();
   try {
     const job = await api("/api/scan", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ domain, modules: chosen, timeout: Number($("#timeout").value),
@@ -130,12 +157,18 @@ async function onSubmit(e) {
         rustscan_timeout: Number($("#rustscan-timeout").value),
         ...($("#rustscan-batch") ? { rustscan_batch: Number($("#rustscan-batch").value) } : {}),
         operator: $("#operator").value, note: $("#note").value, authorised: $("#auth").checked }) });
+    run.textContent = "Scan running…";
     await poll(job.id);
   } catch (ex) {
     err.textContent = ex.message;
-    $("#progress").hidden = true;
+    progress.classList.remove("is-running", "is-done");
+    progress.classList.add("is-failed");
+    progress.setAttribute("aria-busy", "false");
+    $("#status").className = "bad";
+    $("#status").textContent = `Scan failed: ${ex.message}`;
   } finally {
-    $("#run").disabled = false;
+    run.disabled = false;
+    run.textContent = "Run scan";
   }
 }
 
@@ -170,8 +203,12 @@ function renderHeaderCheck(result) {
 async function onHeadersSubmit(e) {
   e.preventDefault();
   const error = $("#headers-error");
+  const button = $("#headers-run");
+  if (button.disabled) return;
   error.textContent = "";
-  $("#headers-run").disabled = true;
+  button.disabled = true;
+  button.textContent = "Checking headers…";
+  $("#headers-form").setAttribute("aria-busy", "true");
   $("#headers-result").hidden = true;
   try {
     const result = await api("/api/headers", { method: "POST",
@@ -183,14 +220,16 @@ async function onHeadersSubmit(e) {
   } catch (ex) {
     error.textContent = ex.message;
   } finally {
-    $("#headers-run").disabled = false;
+    button.disabled = false;
+    button.textContent = "Check headers";
+    $("#headers-form").removeAttribute("aria-busy");
   }
 }
 
 function renderUserAgentStatus(state) {
-  $("#ua-start").disabled = state.running;
-  $("#ua-port").disabled = state.running;
-  $("#ua-stop").disabled = !state.running;
+  $("#ua-start").disabled = state.running || uaActionPending;
+  $("#ua-port").disabled = state.running || uaActionPending;
+  $("#ua-stop").disabled = !state.running || uaActionPending;
   const status = $("#ua-status");
   status.replaceChildren();
   if (state.running && state.address) {
@@ -216,13 +255,28 @@ async function refreshUserAgentStatus() {
 
 async function onUserAgentAction(path, body = {}) {
   const error = $("#ua-error");
+  if (uaActionPending) return;
   error.textContent = "";
+  uaActionPending = true;
+  const start = $("#ua-start");
+  const stop = $("#ua-stop");
+  start.disabled = true;
+  stop.disabled = true;
+  $("#ua-port").disabled = true;
+  start.textContent = path.endsWith("/start") ? "Starting…" : "Start capture server";
+  stop.textContent = path.endsWith("/stop") ? "Stopping…" : "Stop server";
+  $("#ua-status").setAttribute("aria-busy", "true");
   try {
     await api(path, { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body) });
-    await refreshUserAgentStatus();
   } catch (ex) {
     error.textContent = ex.message;
+  } finally {
+    uaActionPending = false;
+    start.textContent = "Start capture server";
+    stop.textContent = "Stop server";
+    $("#ua-status").removeAttribute("aria-busy");
+    refreshUserAgentStatus();
   }
 }
 
@@ -283,9 +337,12 @@ async function init() {
   });
 
   $("#scan-form").addEventListener("submit", onSubmit);
+  $("#run").disabled = false;
+  $("#run").textContent = "Run scan";
   $("#headers-timeout").min = http.min_timeout;
   $("#headers-timeout").max = http.max_timeout;
   $("#headers-form").addEventListener("submit", onHeadersSubmit);
+  $("#headers-run").disabled = false;
   $("#ua-start").addEventListener("click", () =>
     onUserAgentAction("/api/user-agent/start", { port: Number($("#ua-port").value) }));
   $("#ua-stop").addEventListener("click", () => onUserAgentAction("/api/user-agent/stop"));
@@ -295,4 +352,8 @@ async function init() {
     $(`#${id}`).addEventListener("input", (e) => { filters[key] = e.target.value; if (report) renderResults(); });
   }
 }
-init();
+init().catch((ex) => {
+  const error = $("#app-error");
+  error.textContent = `The interface could not load scan options: ${ex.message}`;
+  error.hidden = false;
+});
